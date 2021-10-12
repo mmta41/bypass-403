@@ -212,7 +212,7 @@ func checkTarget(target Target) {
 		}
 		res = string(o)
 	} else {
-		res = fmt.Sprintf("%v\t%v\t%v\n", code, target.Host, h)
+		res = fmt.Sprintf("%v\t%v\t%v", code, target.Host, h)
 	}
 	if code != 200 {
 		if !config.Silent {
