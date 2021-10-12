@@ -198,18 +198,21 @@ func checkTarget(target Target) {
 		return
 	}
 	var res string
+
+	h := ""
+	if target.HeaderKey != "" {
+		h = target.HeaderKey + ":" + target.HeaderValue
+	}
+
 	if config.Json {
-		v := Output{code, target.Host, ""}
-		if target.HeaderKey != "" {
-			v.Header = target.HeaderKey + ":" + target.HeaderValue
-		}
+		v := Output{code, target.Host, h}
 		o, err := json.Marshal(v)
 		if err != nil {
 			return
 		}
 		res = string(o)
 	} else {
-		res = fmt.Sprintf("%v\t%v\t%v:%v\n", code, target.Host, target.HeaderKey, target.HeaderValue)
+		res = fmt.Sprintf("%v\t%v\t%v\n", code, target.Host, h)
 	}
 	if code != 200 {
 		if !config.Silent {
