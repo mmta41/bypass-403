@@ -216,11 +216,11 @@ func checkTarget(target Target) {
 	}
 	if code != 200 {
 		if !config.Silent {
-			log.Printf(res)
+			log.Println(res)
 		}
 		return
 	}
-	stdout.Printf(res)
+	stdout.Println(res)
 }
 
 func showBanner() {
