@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -20,12 +21,12 @@ const (
 
 type (
 	Config struct {
-		Url     string
-		URI     *url.URL
-		Silent  bool
-		Json    bool
-		Threads int
-		Timeout int
+		Url      string
+		Silent   bool
+		Json     bool
+		UseStdin bool
+		Threads  int
+		Timeout  int
 	}
 
 	Target struct {
@@ -35,9 +36,9 @@ type (
 	}
 
 	Output struct {
-		Code   int
-		Target string
-		Header string
+		Code   int    `json:"code"`
+		Target string `json:"target"`
+		Header string `json:"header"`
 	}
 )
 
@@ -105,8 +106,8 @@ var (
 		"%23",
 		".json",
 	}
-
-	stdout *log.Logger
+	targetList []*url.URL
+	stdout     *log.Logger
 )
 
 func main() {
@@ -135,25 +136,28 @@ func main() {
 		}()
 	}
 
-	us := config.URI.String()
-	targets <- Target{Host: us, HeaderKey: "Origin", HeaderValue: "null"}
-	for _, hk := range headerPayloads {
-		targets <- Target{Host: us, HeaderKey: hk, HeaderValue: headerValue}
-	}
-
-	u := getUrl()
-	up := u.Path
-	u.Path = ""
-	us = u.String()
-	for _, hk := range urlHeader {
-		targets <- Target{Host: us, HeaderKey: hk, HeaderValue: up}
-	}
-
-	fl := buildTargetList()
-	for _, f := range fl {
-		for _, p := range urlPayloads {
-			targets <- Target{Host: strings.Replace(f, fuzzerKey, p, 1)}
+	for _, t := range targetList {
+		us := t.String()
+		targets <- Target{Host: us, HeaderKey: "Origin", HeaderValue: "null"}
+		for _, hk := range headerPayloads {
+			targets <- Target{Host: us, HeaderKey: hk, HeaderValue: headerValue}
 		}
+
+		u := copyUrl(t)
+		up := u.Path
+		u.Path = ""
+		us = u.String()
+		for _, hk := range urlHeader {
+			targets <- Target{Host: us, HeaderKey: hk, HeaderValue: up}
+		}
+
+		fl := buildTargetList(t)
+		for _, f := range fl {
+			for _, p := range urlPayloads {
+				targets <- Target{Host: strings.Replace(f, fuzzerKey, p, 1)}
+			}
+		}
+
 	}
 
 	close(targets)
@@ -161,14 +165,14 @@ func main() {
 
 }
 
-func buildTargetList() []string {
-	parts := strings.Split(config.URI.Path, "/")
+func buildTargetList(baseUrl *url.URL) []string {
+	parts := strings.Split(baseUrl.Path, "/")
 	list := make([]string, 0, len(parts))
 	for i := 0; i < len(parts); i++ {
 		p := make([]string, len(parts))
 		copy(p, parts)
 		p[i] = fuzzerKey + strings.TrimSpace(p[i])
-		u := getUrl()
+		u := copyUrl(baseUrl)
 		u.Path = strings.Join(p, "/")
 		list = append(list, u.String())
 		t := strings.ToUpper(p[i])
@@ -178,14 +182,14 @@ func buildTargetList() []string {
 			list = append(list, u.String())
 		}
 	}
-	u := getUrl()
+	u := copyUrl(baseUrl)
 	u.Path += fuzzerKey
 	list = append(list, u.String())
 	return list
 }
 
-func getUrl() *url.URL {
-	u, err := url.Parse(config.URI.String())
+func copyUrl(baseUrl *url.URL) *url.URL {
+	u, err := url.Parse(baseUrl.String())
 	if err != nil {
 		log.Fatalln(err)
 	}
@@ -230,18 +234,39 @@ func showBanner() {
 func parseArguments() {
 	flag.BoolVar(&config.Silent, "silent", false, "Disable banner")
 	flag.BoolVar(&config.Json, "json", false, "Output format as json")
-	flag.StringVar(&config.Url, "url", "", "Url to check")
+	flag.StringVar(&config.Url, "url", "", "comma separated Urls to check")
 	flag.IntVar(&config.Threads, "t", 10, "Number of threads to use")
 	flag.IntVar(&config.Timeout, "timeout", 10, "Seconds to wait before timeout.")
+	flag.BoolVar(&config.UseStdin, "stdin", false, "Read targets url from stdin")
 	flag.Parse()
 
-	ok, u := isValidUrl(config.Url)
-	if !ok {
-		log.Println("invalid url:", config.Url)
+	targetList = make([]*url.URL, 0)
+	if !config.UseStdin {
+		urls := strings.Split(config.Url, ",")
+		for _, us := range urls {
+			ok, u := isValidUrl(us)
+			if ok {
+				targetList = append(targetList, u)
+			}
+		}
+	} else {
+		sc := bufio.NewScanner(os.Stdin)
+		for sc.Scan() {
+			ok, u := isValidUrl(sc.Text())
+			if ok {
+				targetList = append(targetList, u)
+			}
+		}
+		if err := sc.Err(); err != nil {
+			log.Fatalln(err)
+		}
+	}
+
+	if len(targetList) == 0 {
+		log.Println("error: empty target list")
 		flag.Usage()
 		os.Exit(1)
 	}
-	config.URI = u
 }
 
 func isValidUrl(toTest string) (bool, *url.URL) {
